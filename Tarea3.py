@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[4]:
+# In[93]:
 
 
 #!/usr/bin/env python
@@ -19,6 +19,15 @@ from shapely.geometry import Point, mapping, shape
 from owslib.wfs import WebFeatureService
 from geojson import dump
 import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+import folium
+import plotly.express as px
+
+
+# In[1]:
+
 
 print("Descargando capas de cantones y vias..")
 # Cargamos la capa de Cantones 1:5mil del SNIT
@@ -161,21 +170,29 @@ with fiona.open('redvial-cantones.geojson') as source:
 #Fin.
 
 
-# In[21]:
+# # 1. Tabla de cantones
+
+# In[86]:
 
 
 # Tarea 3. Item 1. 
 # Tabla de Cantones
 
-import pandas as pd
+# Acumulador de la suma de la longitud de todas las vias del pais.
+total_longitud = 0
 
 print("Item 1. Tabla de Cantones.")
 i = 0
 list = []
+# Leemos la capa que creamos en la celda anterior, que contiene todos los valores
+# calculados y cada fila se convertira en una Serie que se agregara en una List
+# que a su vez se utilizará para crear el DataFrame.
 with fiona.collection('densidad-vial.gpkg', 'r', layer='redvial-cantones') as cant:
     for record_cant in cant:
+        cod_canton = record_cant['properties']['cod_canton']
         canton = record_cant['properties']['canton']
         calc_longitud = record_cant['properties']['calc_longitud']
+        total_longitud += calc_longitud
         densidad = record_cant['properties']['calc_densidad_vial']
         # Calculos adicionales de longitud
         calc_longitud_autopistas = record_cant['properties']['calc_longitud_autopistas']
@@ -183,12 +200,99 @@ with fiona.collection('densidad-vial.gpkg', 'r', layer='redvial-cantones') as ca
         calc_longitud_carr_pav_1_vias = record_cant['properties']['calc_longitud_carr_pav_1_vias']
         calc_longitud_carr_nopav_2_vias = record_cant['properties']['calc_longitud_carr_nopav_2_vias']
         calc_longitud_caminos_tierra = record_cant['properties']['calc_longitud_caminos_tierra']
-        s1 = pd.Series([canton, calc_longitud, densidad, calc_longitud_autopistas, calc_longitud_carr_pav_2_vias,
+        s1 = pd.Series([cod_canton, canton, calc_longitud, densidad, calc_longitud_autopistas, calc_longitud_carr_pav_2_vias,
                            calc_longitud_carr_pav_1_vias, calc_longitud_carr_nopav_2_vias, calc_longitud_caminos_tierra],
-                      index = ["Canton", "Longitud Total", "Densidad Total", "Autopistas", "Pav 2 vias",  "Pav 1 via", "Sin Pav 2 vias", "Caminos Tirra"])
+                      index = ["cod_canton","Canton", "Longitud Total", "Densidad Total", "Autopistas", "Pav 2 vias",  "Pav 1 via", "Sin Pav 2 vias", "Caminos Tierra"])
         list.append(s1)
 tabla_cant = pd.DataFrame(list)
 tabla_cant
+
+
+# # 2. Top 15 Cantones
+
+# In[42]:
+
+
+# Instanciamos el gráfico de plotly y definios X como Cantón , Y como Longitud.
+# Y los colores los definirán las 5 categorias de vía.
+
+# Dataframe filtrado con los top 15 cantones como mayor red vial, para usar en graficación
+tabla_cant_grafico = tabla_cant.sort_values("Longitud Total", ascending=[False]).head(15)
+
+fig = px.bar(tabla_cant_grafico, 
+             x='Canton', 
+             y=["Autopistas", "Pav 2 vias",  "Pav 1 via", "Sin Pav 2 vias", "Caminos Tierra"], 
+             title="Top 15 cantones con mayor longitud total de red vial (tipo de vía).",
+             labels={
+                "value": "Longitud vial (Km)", "variable": "Tipos de vía", "Canton" : "Cantón"
+            })
+
+fig.show()
+
+
+# # 3. Gráfico de Pastel. Distribución Total de Red Vial por Cantones.
+
+# In[63]:
+
+
+# Dataframe filtrado con los top 15 cantones como mayor red vial, para usar en graficación
+tabla_cant_filtro = tabla_cant.sort_values("Longitud Total", ascending=[False]).head(15)
+
+# Obtengo el valor del ultimo canton
+nth_row = 14
+tabla_cant_filtro = tabla_cant_filtro.iloc[nth_row]
+ultimo = tabla_cant_filtro["Longitud Total"]
+
+# Ahora traigo todos pero ordenados y modifico la variable canton de los menores al 15vo.
+tabla_cant_pie = tabla_cant.sort_values("Longitud Total", ascending=[False])
+tabla_cant_pie.loc[tabla_cant_pie['Longitud Total'] < ultimo, 'Canton'] = 'Otros'
+
+# Creacion del Pie Chart
+fig = px.pie(tabla_cant_pie, values='Longitud Total', names='Canton', title='Gráfico de Pastel. Distribución Total de Red Vial por Cantones.')
+fig.show()
+
+
+# ## 4. Mapa de coropletas Densidad Vial de Costa Rica.
+
+# In[109]:
+
+
+# Carga de registros de Cantones en un dataframe de pandas
+cantones = gpd.read_file("cantones.geojson")
+cantones
+
+# Carga de registros de RedVial en un dataframe de pandas
+redvial = gpd.read_file("redvial.geojson")
+redvial
+
+# Creación del mapa base
+m = folium.Map(location=[9.8, -84], 
+               tiles='CartoDB positron',
+               control_scale=True,
+               zoom_start=8)
+
+folium.Choropleth(
+    name="Densidad Vial",
+    geo_data=cantones,
+    data=tabla_cant,
+    columns=['cod_canton', 'Densidad Total'],
+    bins=7,
+    key_on='feature.properties.cod_canton',
+    fill_color='Reds', 
+    fill_opacity=0.8, 
+    line_opacity=1,
+    legend_name='Densidad vial por cantón',
+    width=800, height=700,
+    smooth_factor=0).add_to(m)
+
+# Añadir capa de Red Vial
+folium.GeoJson(data=redvial, name='Red vial').add_to(m)
+
+# Control de capas
+folium.LayerControl().add_to(m)
+
+# Despliegue del mapa
+m
 
 
 # In[ ]:
