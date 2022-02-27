@@ -8,6 +8,7 @@
 # coding: utf-8
 # Autor: Ashuin Sharma (A35029)
 # Tarea 3.
+# Github Repo: https://github.com/hashcr/gis-tarea3/blob/main/Tarea3.ipynb
 
 import os
 import requests
@@ -293,10 +294,4 @@ folium.LayerControl().add_to(m)
 
 # Despliegue del mapa
 m
-
-
-# In[ ]:
-
-
-
 
